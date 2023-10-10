@@ -2,15 +2,22 @@
 Module defining the main Particle Swarm optimizer class.
 """
 import time
+import json
 import numpy as np
 import logging
 import multiprocessing as mp
+from pathlib import Path
+
 import pandas as pd
+from loguru import logger
 from rdkit import Chem, rdBase
+from tqdm import tqdm
+
 from mso.swarm import Swarm
 from mso.util import canonicalize_smiles
 rdBase.DisableLog('rdApp.error')
 logging.getLogger('tensorflow').disabled = True
+
 
 class BasePSOptimizer:
     """
@@ -32,6 +39,10 @@ class BasePSOptimizer:
         self.best_solutions = pd.DataFrame(columns=["smiles", "fitness"])
         self.best_fitness_history = pd.DataFrame(columns=["step", "swarm", "fitness"])
 
+        self.smi_to_unscaled_scores = {}
+        self.smi_to_scaled_scores = {}
+        self.smi_to_desirability_scores = {}
+
     def update_fitness(self, swarm):
         """
         Method that calculates and updates the fitness of each particle in  a given swarm. A
@@ -43,12 +54,40 @@ class BasePSOptimizer:
         assert self.scoring_functions is not None
         weight_sum = 0
         fitness = 0
-        mol_list = [Chem.MolFromSmiles(sml) for sml in swarm.smiles]
+
+        # check if all smiles are equal (will be true at the beginning of the optimization)
+        # are_all_equal = len(set(swarm.smiles)) == 1
+        uniq_smis = [smi for smi in set(swarm.smiles) if smi not in self.smi_to_unscaled_scores]
+        # mol_list = [Chem.MolFromSmiles(sml) for sml in swarm.smiles]
+        mol_list = [Chem.MolFromSmiles(sml) for sml in uniq_smis]
         for scoring_function in self.scoring_functions:
             if scoring_function.is_mol_func:
+                # if are_all_equal:
+                #     logger.info("All smiles are equal, only scoring one molecule")
+                #     unscaled_scores, scaled_scores, desirability_scores = scoring_function([mol_list[0]])
+                #     unscaled_scores = np.tile(unscaled_scores, len(mol_list))
+                #     scaled_scores = np.tile(scaled_scores, len(mol_list))
+                #     desirability_scores = np.tile(desirability_scores, len(mol_list))
+                # else:
                 unscaled_scores, scaled_scores, desirability_scores = scoring_function(mol_list)
+                for smi, unscaled_score, scaled_score, desirability_score in zip(uniq_smis, unscaled_scores, scaled_scores, desirability_scores):
+                    self.smi_to_unscaled_scores[smi] = unscaled_score
+                    self.smi_to_scaled_scores[smi] = scaled_score
+                    self.smi_to_desirability_scores[smi] = desirability_score
+                # remap to full list of scores
+                unscaled_scores = np.array([self.smi_to_unscaled_scores[smi] for smi in swarm.smiles])
+                scaled_scores = np.array([self.smi_to_scaled_scores[smi] for smi in swarm.smiles])
+                desirability_scores = np.array([self.smi_to_desirability_scores[smi] for smi in swarm.smiles])
             else:
+                # if are_all_equal:
+                #     logger.info("All smiles are equal, only scoring one embedding")
+                #     unscaled_scores, scaled_scores, desirability_scores = scoring_function(np.array([swarm.x[0]]))
+                #     unscaled_scores = np.tile(unscaled_scores, len(mol_list))
+                #     scaled_scores = np.tile(scaled_scores, len(mol_list))
+                #     desirability_scores = np.tile(desirability_scores, len(mol_list))
+                # else:
                 unscaled_scores, scaled_scores, desirability_scores = scoring_function(swarm.x)
+
             swarm.unscaled_scores[scoring_function.name] = unscaled_scores
             swarm.scaled_scores[scoring_function.name] = scaled_scores
             swarm.desirability_scores[scoring_function.name] = desirability_scores
