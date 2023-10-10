@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='mso',
-    version='0.1',
+    version='0.2',
     packages=['mso', 'mso.data', 'mso.objectives'],
     url='',
     license='',
