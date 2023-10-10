@@ -157,7 +157,10 @@ class Swarm:
         :return: A Swarm instance.
         """
         if isinstance(init_sml, list):
-            idxs = np.random.randint(0, len(init_sml), size=num_part)
+            if len(init_sml) >= num_part:
+                idxs = np.random.choice(len(init_sml), size=num_part, replace=False)
+            else:
+                idxs = np.random.randint(0, len(init_sml), size=num_part)
             smiles = [init_sml[i] for i in idxs]
             x = init_emb[idxs]
         else:
