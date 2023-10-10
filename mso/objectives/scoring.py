@@ -3,6 +3,8 @@ Module that defines the ScoringFunction class.
 """
 import numpy as np
 from scipy.interpolate import interp1d
+from tqdm import tqdm
+
 
 DEFAULT_DESIRABILITY = [{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 1.0}]
 
@@ -84,7 +86,7 @@ class ScoringFunction:
                 curve.
         """
         if self.is_mol_func:
-            unscaled_scores = np.array([self.func(mol) for mol in input])
+            unscaled_scores = np.array([self.func(mol) for mol in tqdm(input, desc="evaluating scoring function")])
         else:
             unscaled_scores = self.func(input)
         desirability_scores = self.desirability_function(unscaled_scores)
