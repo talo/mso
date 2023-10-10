@@ -145,25 +145,40 @@ class BasePSOptimizer:
         new_df.smiles = [swarm.best_smiles for swarm in self.swarms]
         new_df.swarm = [i for i in range(len(self.swarms))]
         new_df.step = step
-        self.best_fitness_history = self.best_fitness_history.append(new_df, sort=False)
+        # self.best_fitness_history = self.best_fitness_history.append(new_df, sort=False)
+        self.best_fitness_history = pd.concat([self.best_fitness_history, new_df], ignore_index=True, sort=False)
 
-    def run(self, num_steps, num_track=10):
+    def run(self, num_steps: int, num_track: int = 1_000_000, out_dir: Path = Path("./results/")):
         """
         The main optimization loop.
         :param num_steps: The number of update steps.
         :param num_track: Number of best solutions to track.
         :return: The optimized particle swarm.
         """
+        out_dir.mkdir(exist_ok=False, parents=True)
+
         # evaluate initial score
         for swarm in self.swarms:
             self.update_fitness(swarm)
-        for step in range(num_steps):
-            self._update_best_fitness_history(step)
-            max_fitness, min_fitness, mean_fitness = self._update_best_solutions(num_track)
-            print("Step %d, max: %.3f, min: %.3f, mean: %.3f"
-                  % (step, max_fitness, min_fitness, mean_fitness))
-            for swarm in self.swarms:
-                self._next_step_and_evaluate(swarm)
+
+        # run particle swarm optimisation
+        with open(out_dir / "epoch_stats.txt", "a") as epoch_stats_file:
+            for step in tqdm(range(num_steps), desc="running steps"):
+                self._update_best_fitness_history(step)
+                max_fitness, min_fitness, mean_fitness = self._update_best_solutions(num_track)
+                epoch_stats = f"Step {step:d}, max: {max_fitness:.3f}, min: {min_fitness:.3f}, mean: {mean_fitness:.3f}"
+                logger.success(epoch_stats)
+                epoch_stats_file.write(epoch_stats + "\n")
+                
+                for swarm in tqdm(self.swarms, desc="updating each swarm"):
+                    self._next_step_and_evaluate(swarm)
+                            
+                # save
+                self.best_solutions.to_csv(out_dir / "best_solutions.csv", index=False)
+                self.best_fitness_history.to_csv(out_dir / "best_fitness_history.csv", index=False)
+                with open(out_dir / "smi_to_unscaled_scores.json", "w") as f:
+                    # use this to speed up a future run, assuming oracle params like residues_of_interest are identical
+                    json.dump(self.smi_to_unscaled_scores, f)
         return self.swarms
 
     @classmethod
