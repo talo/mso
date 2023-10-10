@@ -122,7 +122,8 @@ class BasePSOptimizer:
         new_df.smiles = [sml for swarm in self.swarms for sml in swarm.smiles]
         new_df.fitness = [fit for swarm in self.swarms for fit in swarm.fitness]
         new_df.smiles = new_df.smiles.map(canonicalize_smiles)
-        self.best_solutions = self.best_solutions.append(new_df)
+        # self.best_solutions = self.best_solutions.append(new_df)
+        self.best_solutions = pd.concat([self.best_solutions, new_df])
         self.best_solutions = self.best_solutions.drop_duplicates("smiles")
         self.best_solutions = self.best_solutions.sort_values(
             "fitness",
@@ -207,7 +208,9 @@ class BasePSOptimizer:
                 x_max=x_max,
                 phi1=phi1,
                 phi2=phi2,
-                phi3=phi3) for _ in range(num_swarms)]
+                phi3=phi3
+            ) for _ in range(num_swarms)
+        ]
         return cls(swarms, inference_model, scoring_functions, **kwargs)
 
     @classmethod
