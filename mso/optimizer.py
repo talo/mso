@@ -57,6 +57,7 @@ class BasePSOptimizer:
         self.smi_to_scaled_scores: dict[str, float] = {}
         self.smi_to_desirability_scores: dict[str, float] = {}
         self.smi_to_residues: dict[str, str] = {}
+        self.smi_to_hashes: dict[str, str] = {}
         self.init_smiles_set = {canonicalize_smiles(smi) for smi in init_smiles_set}
 
     def update_fitness(self, swarm):
@@ -77,14 +78,15 @@ class BasePSOptimizer:
         mol_list = [Chem.MolFromSmiles(sml) for sml in uniq_smis]
         for scoring_function in self.scoring_functions:
             if scoring_function.is_mol_func:
-                unscaled_scores, scaled_scores, desirability_scores, residues = scoring_function(mol_list)
-                for smi, unscaled_score, scaled_score, desirability_score, residue in zip(
-                    uniq_smis, unscaled_scores, scaled_scores, desirability_scores, residues
+                unscaled_scores, scaled_scores, desirability_scores, residues, hashes = scoring_function(mol_list)
+                for smi, unscaled_score, scaled_score, desirability_score, residue, hash in zip(
+                    uniq_smis, unscaled_scores, scaled_scores, desirability_scores, residues, hashes
                 ):
                     self.smi_to_unscaled_scores[smi] = unscaled_score
                     self.smi_to_scaled_scores[smi] = scaled_score
                     self.smi_to_desirability_scores[smi] = desirability_score
                     self.smi_to_residues[smi] = residue  # for viz only, not used for optimisation
+                    self.smi_to_hashes[smi] = hash  # for viz only, not used for optimisation
                 # remap to full list of scores
                 unscaled_scores = np.array([self.smi_to_unscaled_scores[smi] for smi in swarm.smiles])
                 scaled_scores = np.array([self.smi_to_scaled_scores[smi] for smi in swarm.smiles])
@@ -126,6 +128,7 @@ class BasePSOptimizer:
         new_df.smiles = [sml for swarm in self.swarms for sml in swarm.smiles]
         new_df.fitness = [fit for swarm in self.swarms for fit in swarm.fitness]
         new_df.residues = [self.smi_to_residues[smi] for smi in new_df.smiles]
+        new_df.hashes = [self.smi_to_hashes[smi] for smi in new_df.smiles]
 
         # NOTE: remove SMILES which match the SMILES used to initialise the particle swarms
         new_df = new_df[~new_df.smiles.isin(self.init_smiles_set)]
@@ -149,7 +152,9 @@ class BasePSOptimizer:
         new_df = pd.DataFrame(columns=["step", "swarm", "fitness", "smiles", "residues"])
         new_df.fitness = [swarm.swarm_best_fitness for swarm in self.swarms]
         new_df.smiles = [swarm.best_smiles for swarm in self.swarms]
-        new_df.residues = [self.smi_to_residues[str(smi)] for smi in new_df.smiles]
+        new_df.residues = [self.smi_to_residues[str(smi)] for smi in new_df.smiles]  # need to str() as smi is a numpy string lol
+        new_df.hashes = [self.smi_to_hashes[str(smi)] for smi in new_df.smiles]
+
         new_df.swarm = [i for i in range(len(self.swarms))]
         new_df.step = step
         # self.best_fitness_history = self.best_fitness_history.append(new_df, sort=False)
@@ -187,7 +192,8 @@ class BasePSOptimizer:
                     self.best_solutions, 
                     smiles_col="smiles", 
                     output=out_dir / "generated_smiles_and_fitnesses_grid.html", 
-                    subset=["fitness", "residues"]
+                    subset=["fitness"],
+                    tooltip=["smiles", "residues", "hashes"]
                 )
                 with open(out_dir / "smi_to_unscaled_scores.json", "w") as f:
                     # use this to speed up a future run, assuming oracle params like residues_of_interest are identical

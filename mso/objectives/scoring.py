@@ -88,16 +88,17 @@ class ScoringFunction:
         if self.is_mol_func:
             outputs = [self.func(mol) for mol in tqdm(input, desc="evaluating scoring function")]
             if self.name == "interactions":
-                scores, residues = zip(*outputs)
+                scores, residues, hashes = zip(*outputs)
             else:
-                residues = [None for _ in range(len(unscaled_scores))]
+                residues = ["" for _ in range(len(unscaled_scores))]
+                hashes = ["" for _ in range(len(unscaled_scores))]
             unscaled_scores = np.array(scores)
         else:
             unscaled_scores = self.func(input)
         desirability_scores = self.desirability_function(unscaled_scores)
         scaled_scores = desirability_scores * self.weight
 
-        return unscaled_scores, scaled_scores, desirability_scores, residues
+        return unscaled_scores, scaled_scores, desirability_scores, residues, hashes
 
     @classmethod
     def from_dict(cls, dictionary):
