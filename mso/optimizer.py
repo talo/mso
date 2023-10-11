@@ -8,6 +8,7 @@ import logging
 import multiprocessing as mp
 from pathlib import Path
 
+import mols2grid
 import pandas as pd
 from loguru import logger
 from rdkit import Chem, rdBase
@@ -55,6 +56,7 @@ class BasePSOptimizer:
         self.smi_to_unscaled_scores: dict[str, float] = {}
         self.smi_to_scaled_scores: dict[str, float] = {}
         self.smi_to_desirability_scores: dict[str, float] = {}
+        self.smi_to_residues: dict[str, str] = {}
         self.init_smiles_set = {canonicalize_smiles(smi) for smi in init_smiles_set}
 
     def update_fitness(self, swarm):
@@ -69,38 +71,26 @@ class BasePSOptimizer:
         weight_sum = 0
         fitness = 0
 
-        # check if all smiles are equal (will be true at the beginning of the optimization)
-        # are_all_equal = len(set(swarm.smiles)) == 1
+        swarm.smiles = [canonicalize_smiles(smi) for smi in swarm.smiles]
+
         uniq_smis = [smi for smi in set(swarm.smiles) if smi not in self.smi_to_unscaled_scores]
-        # mol_list = [Chem.MolFromSmiles(sml) for sml in swarm.smiles]
         mol_list = [Chem.MolFromSmiles(sml) for sml in uniq_smis]
         for scoring_function in self.scoring_functions:
             if scoring_function.is_mol_func:
-                # if are_all_equal:
-                #     logger.info("All smiles are equal, only scoring one molecule")
-                #     unscaled_scores, scaled_scores, desirability_scores = scoring_function([mol_list[0]])
-                #     unscaled_scores = np.tile(unscaled_scores, len(mol_list))
-                #     scaled_scores = np.tile(scaled_scores, len(mol_list))
-                #     desirability_scores = np.tile(desirability_scores, len(mol_list))
-                # else:
-                unscaled_scores, scaled_scores, desirability_scores = scoring_function(mol_list)
-                for smi, unscaled_score, scaled_score, desirability_score in zip(uniq_smis, unscaled_scores, scaled_scores, desirability_scores):
+                unscaled_scores, scaled_scores, desirability_scores, residues = scoring_function(mol_list)
+                for smi, unscaled_score, scaled_score, desirability_score, residue in zip(
+                    uniq_smis, unscaled_scores, scaled_scores, desirability_scores, residues
+                ):
                     self.smi_to_unscaled_scores[smi] = unscaled_score
                     self.smi_to_scaled_scores[smi] = scaled_score
                     self.smi_to_desirability_scores[smi] = desirability_score
+                    self.smi_to_residues[smi] = residue  # for viz only, not used for optimisation
                 # remap to full list of scores
                 unscaled_scores = np.array([self.smi_to_unscaled_scores[smi] for smi in swarm.smiles])
                 scaled_scores = np.array([self.smi_to_scaled_scores[smi] for smi in swarm.smiles])
                 desirability_scores = np.array([self.smi_to_desirability_scores[smi] for smi in swarm.smiles])
             else:
-                # if are_all_equal:
-                #     logger.info("All smiles are equal, only scoring one embedding")
-                #     unscaled_scores, scaled_scores, desirability_scores = scoring_function(np.array([swarm.x[0]]))
-                #     unscaled_scores = np.tile(unscaled_scores, len(mol_list))
-                #     scaled_scores = np.tile(scaled_scores, len(mol_list))
-                #     desirability_scores = np.tile(desirability_scores, len(mol_list))
-                # else:
-                unscaled_scores, scaled_scores, desirability_scores = scoring_function(swarm.x)
+                unscaled_scores, scaled_scores, desirability_scores, _ = scoring_function(swarm.x)
 
             swarm.unscaled_scores[scoring_function.name] = unscaled_scores
             swarm.scaled_scores[scoring_function.name] = scaled_scores
@@ -132,10 +122,10 @@ class BasePSOptimizer:
         :param num_track: Length of the best_solutions dataframe.
         :return: The max, min and mean fitness of the best_solutions dataframe.
         """
-        new_df = pd.DataFrame(columns=["smiles", "fitness"])
+        new_df = pd.DataFrame(columns=["smiles", "fitness", "residues"])
         new_df.smiles = [sml for swarm in self.swarms for sml in swarm.smiles]
         new_df.fitness = [fit for swarm in self.swarms for fit in swarm.fitness]
-        new_df.smiles = new_df.smiles.map(canonicalize_smiles)
+        new_df.residues = [self.smi_to_residues[smi] for smi in new_df.smiles]
 
         # NOTE: remove SMILES which match the SMILES used to initialise the particle swarms
         new_df = new_df[~new_df.smiles.isin(self.init_smiles_set)]
@@ -156,9 +146,10 @@ class BasePSOptimizer:
         :param step: The current iteration step of the optimizer.
         :return: None
         """
-        new_df = pd.DataFrame(columns=["step", "swarm", "fitness", "smiles"])
+        new_df = pd.DataFrame(columns=["step", "swarm", "fitness", "smiles", "residues"])
         new_df.fitness = [swarm.swarm_best_fitness for swarm in self.swarms]
         new_df.smiles = [swarm.best_smiles for swarm in self.swarms]
+        new_df.residues = [self.smi_to_residues[str(smi)] for smi in new_df.smiles]
         new_df.swarm = [i for i in range(len(self.swarms))]
         new_df.step = step
         # self.best_fitness_history = self.best_fitness_history.append(new_df, sort=False)
@@ -192,6 +183,12 @@ class BasePSOptimizer:
                 # save
                 self.best_solutions.to_csv(out_dir / "best_solutions.csv", index=False)
                 self.best_fitness_history.to_csv(out_dir / "best_fitness_history.csv", index=False)
+                mols2grid.save(
+                    self.best_solutions, 
+                    smiles_col="smiles", 
+                    output=out_dir / "generated_smiles_and_fitnesses_grid.html", 
+                    subset=["fitness", "residues"]
+                )
                 with open(out_dir / "smi_to_unscaled_scores.json", "w") as f:
                     # use this to speed up a future run, assuming oracle params like residues_of_interest are identical
                     json.dump(self.smi_to_unscaled_scores, f, cls=NumpyEncoder)
