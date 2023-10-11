@@ -60,7 +60,14 @@ class Swarm:
         v_u3 = u3 * (np.array(random.choice(self.history_swarm_best_x)) - self.x)
         self.v = self.inertia_weight * self.v + v_u1 + v_u2 + v_u3
         self.x += self.v
-        self.x = np.clip(self.x, self.x_min, self.x_max)
+        # self.x = np.clip(self.x, self.x_min, self.x_max)
+        # clip x by norm of latent vectors
+        # self.x /= np.linalg.norm(self.x, axis=1, keepdims=True)
+        # clip x to a hyperball of fixed radius R = 10
+        norms = np.linalg.norm(self.x, axis=1, keepdims=True)
+        self.x *= np.minimum(norms, 10) / norms
+        # below projects to a hyperball of radius R = 10, which is not the same as clipping
+        # self.x = self.x / (np.linalg.norm(self.x, axis=1, keepdims=True) / 10)
 
     def update_fitness(self, fitness):
         """
