@@ -19,11 +19,24 @@ rdBase.DisableLog('rdApp.error')
 logging.getLogger('tensorflow').disabled = True
 
 
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NumpyEncoder, self).default(obj)
+    
+
 class BasePSOptimizer:
     """
         Base particle swarm optimizer class. It handles the optimization of a swarm object.
     """
-    def __init__(self, swarms, inference_model, scoring_functions=None):
+    def __init__(self, swarms, inference_model, scoring_functions=None, init_smiles_set: set[str] = set()):
         """
 
         :param swarms: List of swarm objects each defining an individual particle swarm that
@@ -39,9 +52,10 @@ class BasePSOptimizer:
         self.best_solutions = pd.DataFrame(columns=["smiles", "fitness"])
         self.best_fitness_history = pd.DataFrame(columns=["step", "swarm", "fitness"])
 
-        self.smi_to_unscaled_scores = {}
-        self.smi_to_scaled_scores = {}
-        self.smi_to_desirability_scores = {}
+        self.smi_to_unscaled_scores: dict[str, float] = {}
+        self.smi_to_scaled_scores: dict[str, float] = {}
+        self.smi_to_desirability_scores: dict[str, float] = {}
+        self.init_smiles_set = {canonicalize_smiles(smi) for smi in init_smiles_set}
 
     def update_fitness(self, swarm):
         """
@@ -122,13 +136,15 @@ class BasePSOptimizer:
         new_df.smiles = [sml for swarm in self.swarms for sml in swarm.smiles]
         new_df.fitness = [fit for swarm in self.swarms for fit in swarm.fitness]
         new_df.smiles = new_df.smiles.map(canonicalize_smiles)
-        # self.best_solutions = self.best_solutions.append(new_df)
+
+        # NOTE: remove SMILES which match the SMILES used to initialise the particle swarms
+        new_df = new_df[~new_df.smiles.isin(self.init_smiles_set)]
+
         self.best_solutions = pd.concat([self.best_solutions, new_df])
         self.best_solutions = self.best_solutions.drop_duplicates("smiles")
-        self.best_solutions = self.best_solutions.sort_values(
-            "fitness",
-            ascending=False).reset_index(drop=True)
+        self.best_solutions = self.best_solutions.sort_values("fitness", ascending=False).reset_index(drop=True)
         self.best_solutions = self.best_solutions.iloc[:num_track]
+
         best_solutions_max = self.best_solutions.fitness.max()
         best_solutions_min = self.best_solutions.fitness.min()
         best_solutions_mean = self.best_solutions.fitness.mean()
@@ -178,7 +194,7 @@ class BasePSOptimizer:
                 self.best_fitness_history.to_csv(out_dir / "best_fitness_history.csv", index=False)
                 with open(out_dir / "smi_to_unscaled_scores.json", "w") as f:
                     # use this to speed up a future run, assuming oracle params like residues_of_interest are identical
-                    json.dump(self.smi_to_unscaled_scores, f)
+                    json.dump(self.smi_to_unscaled_scores, f, cls=NumpyEncoder)
         return self.swarms
 
     @classmethod
@@ -226,7 +242,7 @@ class BasePSOptimizer:
                 phi3=phi3
             ) for _ in range(num_swarms)
         ]
-        return cls(swarms, inference_model, scoring_functions, **kwargs)
+        return cls(swarms, inference_model, scoring_functions, set(init_smiles), **kwargs)
 
     @classmethod
     def from_query_list(cls, init_smiles, num_part, num_swarms, inference_model,
@@ -260,6 +276,7 @@ class BasePSOptimizer:
         """
         assert isinstance(init_smiles, list)
         assert len(init_smiles) == num_swarms
+
         embedding = inference_model.seq_to_emb(init_smiles)
         swarms = []
         for i, sml in enumerate(init_smiles):
@@ -275,7 +292,7 @@ class BasePSOptimizer:
                 phi2=phi2,
                 phi3=phi3))
 
-        return cls(swarms, inference_model, scoring_functions, **kwargs)
+        return cls(swarms, inference_model, scoring_functions, set(init_smiles), **kwargs)
 
     @classmethod
     def from_swarm_dicts(cls, swarm_dicts, inference_model, scoring_functions=None, x_min=-1., x_max=1.,
