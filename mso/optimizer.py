@@ -124,7 +124,7 @@ class BasePSOptimizer:
         :param num_track: Length of the best_solutions dataframe.
         :return: The max, min and mean fitness of the best_solutions dataframe.
         """
-        new_df = pd.DataFrame(columns=["smiles", "fitness", "residues"])
+        new_df = pd.DataFrame(columns=["smiles", "fitness", "residues", "hashes"])
         new_df.smiles = [sml for swarm in self.swarms for sml in swarm.smiles]
         new_df.fitness = [fit for swarm in self.swarms for fit in swarm.fitness]
         new_df.residues = [self.smi_to_residues[smi] for smi in new_df.smiles]
@@ -149,7 +149,7 @@ class BasePSOptimizer:
         :param step: The current iteration step of the optimizer.
         :return: None
         """
-        new_df = pd.DataFrame(columns=["step", "swarm", "fitness", "smiles", "residues"])
+        new_df = pd.DataFrame(columns=["step", "swarm", "fitness", "smiles", "residues", "hashes"])
         new_df.fitness = [swarm.swarm_best_fitness for swarm in self.swarms]
         new_df.smiles = [swarm.best_smiles for swarm in self.swarms]
         new_df.residues = [self.smi_to_residues[str(smi)] for smi in new_df.smiles]  # need to str() as smi is a numpy string lol

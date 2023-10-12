@@ -167,7 +167,10 @@ class Swarm:
             if len(init_sml) >= num_part:
                 idxs = np.random.choice(len(init_sml), size=num_part, replace=False)
             else:
-                idxs = np.random.randint(0, len(init_sml), size=num_part)
+                # fixed to ensure all init smiles are selected at least once, for max diversity
+                idxs_a = np.random.choice(len(init_sml), size=len(init_sml), replace=False)
+                idxs_b = np.random.randint(0, len(init_sml), size=num_part - len(init_sml))
+                idxs = np.concatenate([idxs_a, idxs_b])
             smiles = [init_sml[i] for i in idxs]
             x = init_emb[idxs]
         else:
